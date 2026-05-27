@@ -1,0 +1,13 @@
+services:
+  basic_kube:
+    container_name: basic_kube_prod
+    build:
+      context: ../
+      dockerfile: ./docker/basic_kube/Dockerfile
+      target: prod
+
+    stdin_open: true
+    tty: true
+    volumes:
+      - ../:/basic_kube
+    command: /scripts/start_grpc_server.sh

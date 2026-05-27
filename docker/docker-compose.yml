@@ -1,0 +1,7 @@
+services:
+    basic_kube:
+        ports:
+        - "8000:8000"
+        - "50051:50051"
+        volumes:
+        - .:/basic_kube

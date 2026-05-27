@@ -1,0 +1,10 @@
+.venv
+.git
+.idea
+.status
+db.sqlite3
+docker
+!docker/basic_kube/requirements.txt
+!docker/basic_kube/scripts
+**/__pycache__
+**/*.pyc

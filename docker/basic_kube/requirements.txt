@@ -1,0 +1,7 @@
+asgiref
+Django
+pillow
+sqlparse
+django-socio-grpc
+grpcio-tools
+daphne
