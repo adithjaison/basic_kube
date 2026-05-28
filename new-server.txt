@@ -42,6 +42,7 @@
 
   # ─── Up ───────────────────────────────────────────────────────────────
   kubectl apply -f k8s/
+  kubectl config set-context --current --namespace=basic-kube
   kubectl rollout status deploy/hello-grpc
 
   # ─── Verify ───────────────────────────────────────────────────────────
