@@ -1,0 +1,111 @@
+  The "down" spectrum
+
+     Smaller blast radius                                   Bigger
+     ────────────────────────────────────────────────────────────►
+
+     scale       delete -f      delete       delete           kind delete
+     to 0        k8s/           namespace    cluster          (nuclear)
+
+     Pods gone   Everything     Namespace    Whole cluster    Everything,
+     Deploy     in your YAML    + everything + control        including kind
+     keeps      gone. Other     in it gone   plane gone       container itself
+     spec       cluster stuff
+                still there
+
+  ┌────────────────────────────────────────────────┬──────────────────────────────────────────────────────────┬─────────────────────────────────────────────┐
+  │                      Goal                      │                         Command                          │                What survives                │
+  ├────────────────────────────────────────────────┼──────────────────────────────────────────────────────────┼─────────────────────────────────────────────┤
+  │ Pause your app, keep config                    │ kubectl scale deploy/hello-grpc --replicas=0             │ Deployment, Service, ConfigMap, Secret,     │
+  │                                                │                                                          │ Namespace                                   │
+  ├────────────────────────────────────────────────┼──────────────────────────────────────────────────────────┼─────────────────────────────────────────────┤
+  │ Tear down your app (Docker-Compose-down        │ kubectl delete -f k8s/                                   │ Namespace (it's safer to keep this)         │
+  │ equivalent)                                    │                                                          │                                             │
+  ├────────────────────────────────────────────────┼──────────────────────────────────────────────────────────┼─────────────────────────────────────────────┤
+  │ Clean slate, same namespace                    │ kubectl delete namespace basic-kube (then kubectl apply  │ Nothing of yours                            │
+  │                                                │ -f k8s/)                                                 │                                             │
+  ├────────────────────────────────────────────────┼──────────────────────────────────────────────────────────┼─────────────────────────────────────────────┤
+  │ Fully reset cluster                            │ kind delete cluster --name learn                         │ Nothing — start from scratch                │
+  └────────────────────────────────────────────────┴──────────────────────────────────────────────────────────┴─────────────────────────────────────────────┘
+
+  The everyday cycle (this is what you'll do 100 times)
+
+  Memorize this loop:
+
+  # ─── Down ─────────────────────────────────────────────────────────────
+  kubectl delete -f k8s/
+
+  # ─── (Optional) Rebuild your image if code changed ────────────────────
+  cd ~/Projects/active/basic_kube/docker
+  docker compose -f docker-compose.yml -f docker-compose-prod.yml build
+  kind load docker-image docker-basic_kube:latest --name learn
+  cd ~/Projects/active/basic_kube
+
+  # ─── Up ───────────────────────────────────────────────────────────────
+  kubectl apply -f k8s/
+  kubectl rollout status deploy/hello-grpc
+
+  # ─── Verify ───────────────────────────────────────────────────────────
+  kubectl get pods,svc
+
+  # ─── Serve (port-forward in this terminal, leave it running) ──────────
+  kubectl port-forward svc/hello-grpc 8080:80
+
+  # ─── In ANOTHER terminal ──────────────────────────────────────────────
+  curl http://localhost:8080/
+
+  That's it. Your day-to-day cycle.
+
+  Important details
+
+  - kubectl apply -f k8s/ applies every YAML in the k8s/ directory in alphabetical order. That's why I named files 01-, 02-, 03-… — the numbers force the order
+  (Namespace before Deployment before Service, etc.).
+  - kubectl delete -f k8s/ deletes them in the same order. (Order matters less for delete because everything goes regardless.)
+  - kubectl rollout status blocks until the new Pods are healthy. Good "wait for it" command.
+  - kubectl port-forward is blocking — that terminal stays busy. Open a second terminal for curl.
+
+  Try it now end-to-end
+
+  Run this exact sequence and tell me where it stops (if anywhere):
+
+  # Terminal 1 — down
+  kubectl delete -f k8s/
+
+  # Terminal 1 — up
+  kubectl apply -f k8s/
+  kubectl rollout status deploy/hello-grpc
+
+  # Terminal 1 — verify
+  kubectl get pods
+  kubectl get svc
+
+  # Terminal 1 — serve (blocks!)
+  kubectl port-forward svc/hello-grpc 8080:80
+
+  # Terminal 2 — test
+  curl http://localhost:8080/
+
+  You should see Django's "It works!" HTML in Terminal 2.
+
+  If you only want to restart Pods without changing anything
+
+  When you change a ConfigMap, Secret, or image but the Deployment YAML didn't change, K8s doesn't know to restart Pods. Two ways to force it:
+
+  # Cleanest: trigger a rolling restart
+  kubectl rollout restart deploy/hello-grpc
+
+  # OR delete the Pods (ReplicaSet recreates them)
+  kubectl delete pod -l app.kubernetes.io/name=hello-grpc
+
+  Use rollout restart 99% of the time — it does a proper rolling update (no downtime). delete pod is more abrupt (all Pods die at once, then come back).
+
+  The "stop the cluster but keep it for later" trick
+
+  kind clusters run inside Docker containers. To pause without deleting:
+
+  # Stop the cluster (everything in it pauses)
+  docker stop learn-control-plane learn-worker
+
+  # Resume it later
+  docker start learn-control-plane learn-worker
+
+  Your manifests, images, etcd state — all preserved. Way faster than recreating.

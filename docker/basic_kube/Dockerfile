@@ -30,4 +30,4 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         daphne \
     && rm -rf /var/lib/apt/lists/*
 
-#CMD ["/scripts/start_prod_server.sh"]
+CMD ["/scripts/start_prod_server.sh"]

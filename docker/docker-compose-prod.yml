@@ -10,4 +10,4 @@ services:
     tty: true
     volumes:
       - ../:/basic_kube
-    command: /scripts/start_grpc_server.sh
+    command: /scripts/start_prod_server.sh
