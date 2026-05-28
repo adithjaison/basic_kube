@@ -110,3 +110,126 @@
   docker start learn-control-plane learn-worker
 
   Your manifests, images, etcd state — all preserved. Way faster than recreating.
+
+
+
+  ---
+  Block 1: Fix namespace + verify state
+
+  kubectl config set-context --current --namespace=basic-kube
+  kubectl get deploy,svc,hpa,pods
+
+  Expect to see:
+  - deployment.apps/hello-grpc — 2/2 ready
+  - service/hello-grpc — ClusterIP
+  - horizontalpodautoscaler.autoscaling/hello-grpc — but TARGETS likely shows <unknown>/70% because metrics-server isn't installed yet
+  - 2 hello-grpc pods, Running
+
+  Paste output if anything looks off, otherwise continue.
+
+  ---
+  Block 2: Install metrics-server
+
+  # Install
+  kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+
+  # Patch for kind (skip kubelet cert verification)
+  kubectl patch -n kube-system deployment metrics-server --type=json \
+    -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+
+  # Wait for it to be ready
+  kubectl rollout status -n kube-system deployment/metrics-server
+
+  Then verify:
+  # Wait ~30s after rollout, then:
+  kubectl top nodes
+  kubectl top pods
+
+  kubectl top should return non-empty CPU/memory rows. If it errors with "metrics not available yet" — wait another 30s, retry. If it persists with cert errors
+  — paste them.
+
+  ---
+  Block 3: Confirm HPA is now seeing metrics
+
+  kubectl get hpa hello-grpc
+  kubectl describe hpa hello-grpc | head -30
+
+  The TARGETS column should now show a real percentage like cpu: 1%/70% (not <unknown>). The describe output should show recent ScalingActive: True in
+  conditions.
+
+  ---
+  Block 4: Load test (3 terminals)
+
+  Terminal 1 — port-forward, leave running
+
+  kubectl port-forward svc/hello-grpc 8080:80
+
+  Terminal 2 — watch HPA + Pods live
+
+  watch -n 2 'kubectl get hpa hello-grpc; echo; kubectl get pods -l app.kubernetes.io/name=hello-grpc'
+
+  Refreshes every 2s. Leave it running.
+
+  Terminal 3 — generate load
+
+  Option A (if you have hey — brew install hey):
+  hey -z 3m -c 100 http://localhost:8080/
+
+  Option B (plain bash, no install):
+  # Start 200 background curl loops
+  for i in {1..200}; do (while true; do curl -s http://localhost:8080/ > /dev/null; done) & done
+
+  # Stop them later with:
+  # pkill -f "curl -s http://localhost:8080"
+
+  ---
+  What to watch in Terminal 2
+
+  You'll see four phases. Paste a snapshot of Terminal 2 from each phase if you can — these are the moments worth documenting (literally take a screenshot for
+  your portfolio).
+
+     Phase 1 — IDLE (before load)
+     ──────────────────────────────────
+     NAME         TARGETS         REPLICAS
+     hello-grpc   cpu: 1%/70%     2
+
+     Pods: 2 Running
+
+     Phase 2 — LOAD HITS
+     ──────────────────────────────────
+     NAME         TARGETS          REPLICAS
+     hello-grpc   cpu: 250%/70%    2     ← over target, scale-up brewing
+
+     Pods: 2 Running, 1 ContainerCreating  ← HPA wrote replicas=3+
+
+     Phase 3 — SCALING UP
+     ──────────────────────────────────
+     NAME         TARGETS          REPLICAS
+     hello-grpc   cpu: 120%/70%    5     ← climbing
+
+     Pods: 4 Running, 1 ContainerCreating
+
+     Phase 4 — STABILIZED
+     ──────────────────────────────────
+     NAME         TARGETS          REPLICAS
+     hello-grpc   cpu: 70%/70%     7     ← settled at target
+
+     Pods: 7 Running
+
+     (stop load)
+
+     Phase 5 — COOLDOWN (~60s after load stops, per scaleDown window)
+     ──────────────────────────────────
+     NAME         TARGETS          REPLICAS
+     hello-grpc   cpu: 5%/70%      7     ← waiting out stabilization window
+
+     ... 60s later ...
+
+  The moment when REPLICAS first ticks up on its own = the entire point of this session. That's when "scalable" stops being a word and becomes a thing you've
+  seen.
+
+  ---
+  Run all four blocks. Paste:
+  1. Block 2's kubectl top pods (proves metrics-server works)
+  2. Block 3's kubectl get hpa (proves HPA sees metrics)
+  3. A Terminal 2 snapshot during scale-up (the wow moment)
